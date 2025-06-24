@@ -1,0 +1,6 @@
+node_modules/
+.env
+uplouds
+
+admin/
+public/
