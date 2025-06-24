@@ -54,6 +54,16 @@ app.get('/', (req, res) => {
   res.send('✅ API do Formulário Funcionando!');
 });
 
+// 🔁 Rota de saúde
+app.get('/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'healthy', 
+    timestamp: new Date(),
+    version: '1.0.0',
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
 // 📂 Página de Login Admin (acesso livre)
 app.get('/admin/login', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'admin-login.html'));
@@ -83,8 +93,23 @@ app.use((err, req, res, next) => {
   res.status(500).json({ success: false, message: 'Erro interno no servidor' });
 });
 
+// 🚫 Rota não encontrada
+app.use((req, res) => {
+  res.status(404).json({ 
+    success: false, 
+    message: `Rota não encontrada: ${req.method} ${req.originalUrl}` 
+  });
+});
+
 // 🚀 Iniciar o servidor
 app.listen(PORT, () => {
   console.log(`🚀 Servidor rodando na porta ${PORT}`);
   console.log(`📁 Uploads sendo servidos de: ${path.join(__dirname, 'uploads')}`);
+  console.log('🔍 Rotas disponíveis:');
+  console.log('  - GET    /');
+  console.log('  - GET    /health');
+  console.log('  - GET    /admin/login');
+  console.log('  - /api/form');
+  console.log('  - /api/auth');
+  console.log('  - /api/admin');
 });

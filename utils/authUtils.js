@@ -4,24 +4,69 @@ import User from '../models/User.js';
 // 🔐 Middleware para proteger rotas
 export const protect = async (req, res, next) => {
   try {
-    const token = req.cookies.jwt; // <-- aqui estava 'token'
-    
+    // 1. Obter token de múltiplas fontes
+    let token;
+    if (req.cookies.jwt) {
+      token = req.cookies.jwt;
+    } else if (
+      req.headers.authorization &&
+      req.headers.authorization.startsWith('Bearer')
+    ) {
+      token = req.headers.authorization.split(' ')[1];
+    }
+
+    // 2. Verificar se token existe
     if (!token) {
-      return res.redirect('/admin/login');
+      return res.status(401).json({
+        status: 'fail',
+        message: 'Você não está logado. Por favor faça login para acessar.',
+        code: 'UNAUTHORIZED'
+      });
     }
 
+    // 3. Verificar token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.id).select('-password');
-
-    if (!user) {
-      return res.redirect('/admin/login');
+    
+    // 4. Verificar se usuário ainda existe
+    const currentUser = await User.findById(decoded.id).select('-password');
+    if (!currentUser) {
+      return res.status(401).json({
+        status: 'fail',
+        message: 'O usuário pertencente a este token não existe mais.',
+        code: 'USER_NOT_FOUND'
+      });
     }
 
-    req.user = user;
+    // 5. Verificar se usuário alterou senha após o token ser emitido
+    if (currentUser.changedPasswordAfter(decoded.iat)) {
+      return res.status(401).json({
+        status: 'fail',
+        message: 'Sua senha foi alterada recentemente. Por favor faça login novamente.',
+        code: 'PASSWORD_CHANGED'
+      });
+    }
+
+    // 6. Conceder acesso à rota protegida
+    req.user = currentUser;
     next();
-  } catch (err) {
-    console.error('Erro de autenticação:', err);
-    return res.redirect('/admin/login');
+  } catch (error) {
+    // Tratamento específico para diferentes erros de token
+    let message = 'Token inválido. Faça login novamente.';
+    let code = 'INVALID_TOKEN';
+    
+    if (error.name === 'TokenExpiredError') {
+      message = 'Sua sessão expirou. Por favor faça login novamente.';
+      code = 'TOKEN_EXPIRED';
+    } else if (error.name === 'JsonWebTokenError') {
+      message = 'Token inválido. Autenticação falhou.';
+    }
+
+    console.error('Erro de autenticação:', error);
+    res.status(401).json({
+      status: 'fail',
+      message,
+      code
+    });
   }
 };
 
@@ -29,47 +74,52 @@ export const protect = async (req, res, next) => {
 export const restrictTo = (...roles) => {
   return (req, res, next) => {
     if (!req.user || !roles.includes(req.user.role)) {
-      return res.status(403).send('Acesso negado. Permissões insuficientes.');
+      return res.status(403).json({
+        status: 'fail',
+        message: 'Acesso negado. Permissões insuficientes.',
+        code: 'FORBIDDEN'
+      });
     }
     next();
   };
 };
 
-// 🆕 Gerar JWT
-export const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_IN || '1d'
-  });
+// 🆕 Gerar JWT (com role)
+export const generateToken = (id, role) => {
+  return jwt.sign(
+    { id, role }, // Incluir role para autorização
+    process.env.JWT_SECRET,
+    {
+      expiresIn: process.env.JWT_EXPIRES_IN || '1d'
+    }
+  );
 };
 
-// 🆕 Middleware para checar sessão
+// 🆕 Middleware para checar sessão (simplificado e unificado com protect)
 export const checkSession = async (req, res, next) => {
   try {
-    const token = req.cookies.jwt; // <-- também estava 'token'
+    let token;
+    if (req.cookies.jwt) {
+      token = req.cookies.jwt;
+    }
 
     if (!token) {
-      return res.status(401).json({ 
-        status: 'fail', 
-        message: 'Não autenticado. Faça login.' 
-      });
+      req.user = null;
+      return next();
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findById(decoded.id).select('-password');
 
     if (!user) {
-      return res.status(401).json({ 
-        status: 'fail', 
-        message: 'Usuário não encontrado.' 
-      });
+      req.user = null;
+      return next();
     }
 
     req.user = user;
     next();
-  } catch (err) {
-    return res.status(401).json({ 
-      status: 'fail', 
-      message: 'Token inválido ou expirado.' 
-    });
+  } catch (error) {
+    req.user = null;
+    next();
   }
 };

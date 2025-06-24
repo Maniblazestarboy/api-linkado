@@ -1,59 +1,122 @@
 import jwt from 'jsonwebtoken';
+import validator from 'validator';
 import User from '../models/User.js';
 
-// 🔐 Função para gerar o JWT
-const signToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_IN || '90d',
-  });
+// 🔐 Função para gerar o JWT com informações completas
+const signToken = (id, role) => {
+  return jwt.sign(
+    { id, role },
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRES_IN || '90d' }
+  );
 };
 
 // 🚪 Login Controller
 export const login = async (req, res) => {
   const { email, password } = req.body;
 
-  // 1) Verifica se os campos foram preenchidos
+  // 1) Validação de campos obrigatórios
   if (!email || !password) {
-    return res.status(400).json({ message: 'Email e senha são obrigatórios.' });
+    return res.status(400).json({ 
+      status: 'fail',
+      message: 'Email e senha são obrigatórios.',
+      code: 'MISSING_CREDENTIALS'
+    });
+  }
+
+  // 2) Validação de formato de email
+  if (!validator.isEmail(email)) {
+    return res.status(400).json({ 
+      status: 'fail',
+      message: 'Formato de email inválido.',
+      code: 'INVALID_EMAIL_FORMAT'
+    });
   }
 
   try {
-    // 2) Verifica se o usuário existe
+    // 3) Buscar usuário incluindo senha
     const user = await User.findOne({ email }).select('+password');
-
-    if (!user || !(await user.correctPassword(password, user.password))) {
-      return res.status(401).json({ message: 'Credenciais inválidas.' });
+    
+    // 4) Verificar se usuário existe
+    if (!user) {
+      return res.status(401).json({ 
+        status: 'fail',
+        message: 'Credenciais inválidas.',
+        code: 'INVALID_CREDENTIALS'
+      });
+    }
+    
+    // 5) Verificar senha
+    const isPasswordValid = await user.correctPassword(password, user.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({ 
+        status: 'fail',
+        message: 'Credenciais inválidas.',
+        code: 'INVALID_CREDENTIALS'
+      });
     }
 
-    // 3) Gera token JWT
-    const token = signToken(user._id);
+    // 6) Gerar token JWT com role
+    const token = signToken(user._id, user.role);
 
-    // 4) Define o cookie JWT
+    // 7) Configurar cookie (opcional)
     res.cookie('jwt', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production', // true em produção com HTTPS
+      secure: process.env.NODE_ENV === 'production',
       sameSite: 'Lax',
       maxAge: 90 * 24 * 60 * 60 * 1000, // 90 dias
     });
 
-    // 5) Envia a resposta com dados básicos
+    // 8) Remover senha antes de enviar resposta
+    user.password = undefined;
+
+    // 9) Enviar resposta completa
     res.status(200).json({
-      message: 'Login bem-sucedido!',
-      name: user.name,
-      role: user.role,
+      status: 'success',
+      token, // Enviar token no corpo também
+      data: {
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          createdAt: user.createdAt
+        }
+      }
     });
+
   } catch (error) {
-    console.error('Erro ao fazer login:', error);
-    res.status(500).json({ message: 'Erro interno no servidor.' });
+    console.error('Erro no processo de login:', error);
+    res.status(500).json({ 
+      status: 'error',
+      message: 'Erro interno no servidor.',
+      code: 'LOGIN_SERVER_ERROR'
+    });
   }
 };
 
-// 🚪 Logout (opcional, se usar)
+// 🚪 Logout Controller
 export const logout = (req, res) => {
-  res.clearCookie('jwt', {
-    httpOnly: true,
-    sameSite: 'Lax',
-    secure: process.env.NODE_ENV === 'production',
-  });
-  res.status(200).json({ message: 'Logout realizado com sucesso.' });
+  try {
+    // Limpar cookie JWT
+    res.clearCookie('jwt', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Lax',
+    });
+    
+    // Enviar resposta de sucesso
+    res.status(200).json({ 
+      status: 'success',
+      message: 'Logout realizado com sucesso.'
+    });
+    
+  } catch (error) {
+    console.error('Erro no logout:', error);
+    res.status(500).json({ 
+      status: 'error',
+      message: 'Erro ao processar logout.',
+      code: 'LOGOUT_ERROR'
+    });
+  }
 };
