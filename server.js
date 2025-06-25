@@ -25,6 +25,10 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// ✅ [A CORREÇÃO] - Confiar no proxy reverso do serviço de hospedagem (Render)
+// Esta linha deve vir antes de qualquer rota ou middleware que dependa dela.
+app.set('trust proxy', 1);
+
 // Middlewares globais
 app.use(cors({
   origin: true,
@@ -106,9 +110,9 @@ app.listen(PORT, () => {
   console.log(`🚀 Servidor rodando na porta ${PORT}`);
   console.log(`📁 Uploads sendo servidos de: ${path.join(__dirname, 'uploads')}`);
   console.log('🔍 Rotas disponíveis:');
-  console.log('  - GET    /');
-  console.log('  - GET    /health');
-  console.log('  - GET    /admin/login');
+  console.log('  - GET     /');
+  console.log('  - GET     /health');
+  console.log('  - GET     /admin/login');
   console.log('  - /api/form');
   console.log('  - /api/auth');
   console.log('  - /api/admin');
